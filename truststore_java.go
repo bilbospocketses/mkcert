@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"hash"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,6 +55,12 @@ func init() {
 	}
 }
 
+// runKeytool invokes keytool and returns its combined output. It is a package
+// variable so tests can substitute a failing keytool without a JDK present.
+var runKeytool = func(args ...string) ([]byte, error) {
+	return exec.Command(keytoolPath, args...).CombinedOutput()
+}
+
 func (m *mkcert) checkJava() bool {
 	if !hasKeytool {
 		return false
@@ -67,8 +74,16 @@ func (m *mkcert) checkJava() bool {
 		return bytes.Contains(keytoolOutput, []byte(fp))
 	}
 
-	keytoolOutput, err := exec.Command(keytoolPath, "-list", "-keystore", cacertsPath, "-storepass", storePass).CombinedOutput()
-	fatalIfCmdErr(err, "keytool -list", keytoolOutput)
+	keytoolOutput, err := runKeytool("-list", "-keystore", cacertsPath, "-storepass", storePass)
+	if err != nil {
+		// A CHECK must be able to answer "no" without killing the process.
+		// This runs on every invocation whenever JAVA_HOME is set -- including
+		// a plain leaf generation that has nothing to do with Java -- so a
+		// fatal here let a broken or partial JDK on the host abort certificate
+		// generation entirely.
+		log.Printf(`Warning: could not read Java's trust store with "keytool -list", so its state is unknown: %s ⚠️`, err)
+		return false
+	}
 	// keytool outputs SHA1 and SHA256 (Java 9+) certificates in uppercase hex
 	// with each octet pair delimitated by ":". Drop them from the keytool output
 	keytoolOutput = bytes.Replace(keytoolOutput, []byte(":"), nil, -1)
