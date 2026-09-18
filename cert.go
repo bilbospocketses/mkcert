@@ -179,9 +179,30 @@ func (m *mkcert) generateKey(rootCA bool) (crypto.PrivateKey, error) {
 	return rsa.GenerateKey(rand.Reader, 2048)
 }
 
+// sanitizeFileName reduces a certificate subject to a single safe path element.
+// Without it a URL-shaped argument -- which main.go's ladder accepts whenever
+// url.Parse finds a scheme and a host -- carries "/" and ".." straight into the
+// output path, writing key material outside the working directory while still
+// exiting 0.
+func sanitizeFileName(name string) string {
+	name = strings.NewReplacer("/", "_", "\\", "_").Replace(name)
+	// Each pass strictly shortens the string, so this terminates.
+	for strings.Contains(name, "..") {
+		name = strings.Replace(name, "..", "_", -1)
+	}
+	return name
+}
+
 func (m *mkcert) fileNames(hosts []string) (certFile, keyFile, p12File string) {
-	defaultName := strings.Replace(hosts[0], ":", "_", -1)
+	// makeCertFromCSR builds hosts from the generated certificate's SANs, which
+	// can legitimately come back empty. Indexing hosts[0] there is a panic.
+	subject := "certificate"
+	if len(hosts) > 0 {
+		subject = hosts[0]
+	}
+	defaultName := strings.Replace(subject, ":", "_", -1)
 	defaultName = strings.Replace(defaultName, "*", "_wildcard", -1)
+	defaultName = sanitizeFileName(defaultName)
 	if len(hosts) > 1 {
 		defaultName += "+" + strconv.Itoa(len(hosts)-1)
 	}
@@ -203,6 +224,31 @@ func (m *mkcert) fileNames(hosts []string) (certFile, keyFile, p12File string) {
 	}
 
 	return
+}
+
+// oidExtensionBasicConstraints is 2.5.29.19.
+var oidExtensionBasicConstraints = asn1.ObjectIdentifier{2, 5, 29, 19}
+
+// safeCSRExtensions filters the extensions a CSR requested before they are
+// copied into a certificate signed by the local root.
+//
+// makeCertFromCSR passes csr.Extensions straight into tpl.ExtraExtensions, and
+// the stdlib appends ExtraExtensions verbatim while suppressing any generated
+// extension that shares an OID with one of them. makeCertFromCSR also never
+// sets BasicConstraintsValid, which is the only gate on generating
+// basicConstraints at all -- so a CSR asking for CA:TRUE previously got an
+// intermediate CA signed by the local root, with nothing competing against it.
+// Dropping basicConstraints means the CA-ness of a certificate is decided here
+// and not by whoever wrote the CSR.
+func safeCSRExtensions(exts []pkix.Extension) []pkix.Extension {
+	out := make([]pkix.Extension, 0, len(exts))
+	for _, e := range exts {
+		if e.Id.Equal(oidExtensionBasicConstraints) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func randomSerialNumber() *big.Int {
@@ -235,7 +281,7 @@ func (m *mkcert) makeCertFromCSR() {
 	tpl := &x509.Certificate{
 		SerialNumber:    randomSerialNumber(),
 		Subject:         csr.Subject,
-		ExtraExtensions: csr.Extensions, // includes requested SANs, KUs and EKUs
+		ExtraExtensions: safeCSRExtensions(csr.Extensions), // requested SANs, KUs and EKUs, minus basicConstraints
 
 		NotBefore: time.Now(), NotAfter: expiration,
 
