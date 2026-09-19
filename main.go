@@ -65,6 +65,26 @@ const advancedUsage = `Advanced options:
 	    Generate a certificate based on the supplied CSR. Conflicts with
 	    all other flags and arguments except -install and -cert-file.
 
+	-days INT
+	    Validity period of the generated certificate, in days. The default
+	    is 2 years and 3 months, just under the 825-day limit macOS and iOS
+	    apply to every certificate, locally-trusted roots included.
+
+	-name-constraints LIST
+	    Comma-separated DNS suffixes and CIDR ranges the CA is permitted to
+	    sign for, e.g. "example.test,192.168.0.0/16". Applied when the CA is
+	    CREATED, so it has no effect on an existing CAROOT. A constrained CA
+	    limits the damage if its private key is ever stolen.
+
+	    Constraints apply PER NAME TYPE: listing only DNS suffixes leaves IP
+	    addresses completely unconstrained, and vice versa. mkcert warns when
+	    you constrain one and not the other.
+
+	-ca-name NAME
+	    Name for the CA in trust stores, instead of "mkcert <user>@<host>".
+	    Applied when the CA is CREATED. The user@host provenance is kept in
+	    the organizational unit either way.
+
 	-CAROOT
 	    Print the CA certificate and key storage location.
 
@@ -103,6 +123,10 @@ func main() {
 		keyFileFlag   = flag.String("key-file", "", "")
 		p12FileFlag   = flag.String("p12-file", "", "")
 		versionFlag   = flag.Bool("version", false, "")
+
+		daysFlag            = flag.Int("days", 0, "")
+		nameConstraintsFlag = flag.String("name-constraints", "", "")
+		caNameFlag          = flag.String("ca-name", "", "")
 	)
 	flag.Usage = func() {
 		fmt.Fprint(flag.CommandLine.Output(), shortUsage)
@@ -142,10 +166,23 @@ func main() {
 	if *csrFlag != "" && flag.NArg() != 0 {
 		log.Fatalln("ERROR: can't specify extra arguments when using -csr")
 	}
+	if *daysFlag < 0 {
+		log.Fatalln("ERROR: -days must be a positive number of days")
+	}
+	if exceedsAppleLimit(*daysFlag) {
+		log.Printf("Warning: %d days exceeds the %d-day limit macOS and iOS apply to every certificate, "+
+			"including locally-trusted ones, so Apple platforms will reject it", *daysFlag, appleValidityLimitDays)
+	}
+	if *nameConstraintsFlag != "" {
+		if _, _, err := parseNameConstraints(*nameConstraintsFlag); err != nil {
+			log.Fatalf("ERROR: %s", err)
+		}
+	}
 	(&mkcert{
 		installMode: *installFlag, uninstallMode: *uninstallFlag, csrPath: *csrFlag,
 		pkcs12: *pkcs12Flag, ecdsa: *ecdsaFlag, client: *clientFlag,
 		certFile: *certFileFlag, keyFile: *keyFileFlag, p12File: *p12FileFlag,
+		days: *daysFlag, nameConstraints: *nameConstraintsFlag, caName: *caNameFlag,
 	}).Run(flag.Args())
 }
 
@@ -157,6 +194,12 @@ type mkcert struct {
 	pkcs12, ecdsa, client      bool
 	keyFile, certFile, p12File string
 	csrPath                    string
+
+	// Adopted from upstream's open backlog: #513/#464 (validity), #657/#302/
+	// #309 (name constraints), #229/#260 (CA name).
+	days            int
+	nameConstraints string
+	caName          string
 
 	CAROOT string
 	caCert *x509.Certificate

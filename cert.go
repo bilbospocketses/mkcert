@@ -15,6 +15,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/pem"
+	"fmt"
 	"log"
 	"math/big"
 	"net"
@@ -55,10 +56,7 @@ func (m *mkcert) makeCert(hosts []string) {
 	fatalIfErr(err, "failed to generate certificate key")
 	pub := priv.(crypto.Signer).Public()
 
-	// Certificates last for 2 years and 3 months, which is always less than
-	// 825 days, the limit that macOS/iOS apply to all certificates,
-	// including custom roots. See https://support.apple.com/en-us/HT210176.
-	expiration := time.Now().AddDate(2, 3, 0)
+	expiration := certExpiration(time.Now(), m.days)
 
 	tpl := &x509.Certificate{
 		SerialNumber: randomSerialNumber(),
@@ -277,7 +275,7 @@ func (m *mkcert) makeCertFromCSR() {
 	fatalIfErr(err, "failed to parse the CSR")
 	fatalIfErr(csr.CheckSignature(), "invalid CSR signature")
 
-	expiration := time.Now().AddDate(2, 3, 0)
+	expiration := certExpiration(time.Now(), m.days)
 	tpl := &x509.Certificate{
 		SerialNumber:    randomSerialNumber(),
 		Subject:         csr.Subject,
@@ -376,27 +374,19 @@ func (m *mkcert) newCA() {
 
 	skid := sha1.Sum(spki.SubjectPublicKey.Bytes)
 
-	tpl := &x509.Certificate{
-		SerialNumber: randomSerialNumber(),
-		Subject: pkix.Name{
-			Organization:       []string{"mkcert development CA"},
-			OrganizationalUnit: []string{userAndHostname},
+	tpl, err := m.newCATemplate(skid[:])
+	fatalIfErr(err, "failed to build the CA certificate template")
 
-			// The CommonName is required by iOS to show the certificate in the
-			// "Certificate Trust Settings" menu.
-			// https://github.com/FiloSottile/mkcert/issues/47
-			CommonName: "mkcert " + userAndHostname,
-		},
-		SubjectKeyId: skid[:],
-
-		NotAfter:  time.Now().AddDate(10, 0, 0),
-		NotBefore: time.Now(),
-
-		KeyUsage: x509.KeyUsageCertSign,
-
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-		MaxPathLenZero:        true,
+	// Constraining one name type leaves the other wide open, and a half-
+	// constrained CA is more dangerous than an unconstrained one because it
+	// looks protected. Say so rather than let it pass quietly.
+	if m.nameConstraints != "" {
+		switch {
+		case len(tpl.PermittedIPRanges) == 0:
+			log.Printf("Warning: these name constraints cover DNS names only, so this CA can still sign ANY IP address")
+		case len(tpl.PermittedDNSDomains) == 0:
+			log.Printf("Warning: these name constraints cover IP addresses only, so this CA can still sign ANY DNS name")
+		}
 	}
 
 	cert, err := x509.CreateCertificate(rand.Reader, tpl, tpl, pub, priv)
@@ -413,6 +403,118 @@ func (m *mkcert) newCA() {
 	fatalIfErr(err, "failed to save CA certificate")
 
 	log.Printf("Created a new local CA 💥\n")
+}
+
+// newCATemplate builds the CA certificate template. Split out of newCA so the
+// subject and the name constraints can be exercised without writing a CAROOT.
+func (m *mkcert) newCATemplate(skid []byte) (*x509.Certificate, error) {
+	// Upstream #229/#260/#240: a root labelled "mkcert <user>@<host>" tells the
+	// person being asked to trust it nothing about which application wanted it.
+	organization, commonName := "mkcert development CA", "mkcert "+userAndHostname
+	if m.caName != "" {
+		organization, commonName = m.caName, m.caName
+	}
+
+	tpl := &x509.Certificate{
+		SerialNumber: randomSerialNumber(),
+		Subject: pkix.Name{
+			Organization: []string{organization},
+			// Deliberately kept even when -ca-name is set: this is how you tell
+			// which user on which machine minted a root found in a trust store.
+			OrganizationalUnit: []string{userAndHostname},
+
+			// The CommonName is required by iOS to show the certificate in the
+			// "Certificate Trust Settings" menu.
+			// https://github.com/FiloSottile/mkcert/issues/47
+			CommonName: commonName,
+		},
+		SubjectKeyId: skid,
+
+		NotAfter:  time.Now().AddDate(10, 0, 0),
+		NotBefore: time.Now(),
+
+		KeyUsage: x509.KeyUsageCertSign,
+
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLenZero:        true,
+	}
+
+	if m.nameConstraints != "" {
+		dns, ips, err := parseNameConstraints(m.nameConstraints)
+		if err != nil {
+			return nil, err
+		}
+		// Despite the field name this marks the whole nameConstraints
+		// extension critical, so a verifier that cannot understand it must
+		// reject rather than ignore it.
+		tpl.PermittedDNSDomainsCritical = true
+		tpl.PermittedDNSDomains = dns
+		tpl.PermittedIPRanges = ips
+	}
+
+	return tpl, nil
+}
+
+// certExpiration returns a leaf certificate's notAfter. days <= 0 keeps
+// upstream's 2 years and 3 months.
+func certExpiration(now time.Time, days int) time.Time {
+	if days > 0 {
+		return now.AddDate(0, 0, days)
+	}
+	// Certificates last for 2 years and 3 months, which is always less than
+	// 825 days, the limit that macOS/iOS apply to all certificates,
+	// including custom roots. See https://support.apple.com/en-us/HT210176.
+	return now.AddDate(2, 3, 0)
+}
+
+// appleValidityLimitDays is the ceiling macOS and iOS apply to any certificate,
+// locally-trusted roots included.
+const appleValidityLimitDays = 825
+
+func exceedsAppleLimit(days int) bool {
+	return days >= appleValidityLimitDays
+}
+
+// constraintHostRegexp matches a DNS name usable as a constraint. Same shape as
+// the hostname check in main.go, minus the wildcard: a constraint is a suffix,
+// so "*.example.test" would be a category error rather than a broader rule.
+var constraintHostRegexp = regexp.MustCompile(`(?i)^[0-9a-z_-]([0-9a-z._-]*[0-9a-z_-])?$`)
+
+// parseNameConstraints splits a comma-separated constraint list into DNS
+// suffixes and IP ranges. An entry containing "/" is read as CIDR, everything
+// else as a DNS suffix.
+//
+// BOTH halves matter, and that is the whole point of the feature. X.509 applies
+// name constraints PER NAME TYPE: constraining dNSName alone leaves iPAddress
+// entirely unconstrained. Measured against upstream PR #657, which sets only
+// PermittedDNSDomains -- a CA so constrained still happily signs 8.8.8.8. Since
+// the subject here is usually a LAN IP, DNS-only constraints would be security
+// theatre.
+func parseNameConstraints(spec string) (dns []string, ips []*net.IPNet, err error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, nil, fmt.Errorf("no name constraints given")
+	}
+	for _, raw := range strings.Split(spec, ",") {
+		entry := strings.TrimSpace(raw)
+		switch {
+		case entry == "":
+			return nil, nil, fmt.Errorf("empty entry in name constraint list %q", spec)
+		case strings.Contains(entry, "/"):
+			_, ipNet, cidrErr := net.ParseCIDR(entry)
+			if cidrErr != nil {
+				return nil, nil, fmt.Errorf("invalid CIDR name constraint %q: %v", entry, cidrErr)
+			}
+			ips = append(ips, ipNet)
+		case constraintHostRegexp.MatchString(entry):
+			// The bare name permits the name itself; the leading dot permits
+			// everything beneath it.
+			dns = append(dns, entry, "."+entry)
+		default:
+			return nil, nil, fmt.Errorf("invalid DNS name constraint %q", entry)
+		}
+	}
+	return dns, ips, nil
 }
 
 func (m *mkcert) caUniqueName() string {
