@@ -1,0 +1,22 @@
+# Build output. `go build` in the repository root drops the binary here, and
+# the baseline build for the 2026-09-18 review left a 6.99 MB mkcert.exe
+# untracked in the working tree -- reported by `git status` on every check, and
+# one careless `git add -A` away from being committed into a repository whose
+# entire purpose is controlling its own release artefacts.
+#
+# Leading slashes on purpose: a bare `mkcert` would also match a directory of
+# that name at any depth.
+/mkcert
+/mkcert.exe
+
+# Cross-compiled release artefacts, named mkcert-<version>-<goos>-<goarch>.
+/mkcert-*
+
+# Test binaries from `go test -c`.
+*.test
+*.test.exe
+
+# Certificates and keys, in case anyone runs the tool from inside the checkout.
+# Leaking a CA private key through a commit is not a recoverable mistake.
+*.pem
+*.p12

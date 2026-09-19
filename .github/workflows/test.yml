@@ -1,23 +1,62 @@
-on: [push, pull_request]
 name: Test
+
+# A pull request from a branch in this repository fires BOTH `push` and
+# `pull_request`, so the previous `on: [push, pull_request]` ran the whole
+# three-OS matrix twice for every commit -- measured on PR #1, runs
+# 35399874779 and 35399906289 for one push. Restricting `push` to master keeps
+# one run per commit on a branch and one per merge.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # staticcheck used to be installed @latest, which recompiled it from source on
+  # every job and silently changed the lint surface whenever upstream released.
+  # A pinned version means a new finding is our code changing, not the linter.
+  STATICCHECK_VERSION: "2026.2.1"
+
 jobs:
   test:
     name: Go tests
     strategy:
       fail-fast: false
       matrix:
+        # `-latest` is a moving target and that is deliberate HERE: this matrix
+        # exists to find out when a new runner image breaks us, and it is cheap
+        # to fix a test job. release.yml pins its runner instead, because a
+        # release build wants reproducibility rather than early warning.
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Go ${{ matrix.go }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.x
       - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Run staticcheck
-        run: |
-          go install honnef.co/go/tools/cmd/staticcheck@latest
-          staticcheck ./...
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # Reads the `go` directive from go.mod, so CI builds on exactly the
+          # floor the project claims to support. `go-version: 1.x` floated to
+          # whatever was newest and therefore never tested that claim.
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
       - name: Run tests
         run: go test -race ./...
+
+      # Added once the last unsafe.Pointer finding was fixed. Before that vet
+      # exited 1 on Windows, so it could not be a gate -- and a permanently red
+      # check is worse than none, because the next real finding hides in it.
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@${{ env.STATICCHECK_VERSION }}
+
+      - name: Run staticcheck
+        run: staticcheck ./...
