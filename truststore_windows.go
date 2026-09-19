@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -21,14 +23,20 @@ var (
 	NSSBrowsers         = "Firefox"
 )
 
+// golang.org/x/sys/windows provides typed wrappers for the crypt32 calls used
+// here, so a certificate context stays a *windows.CertContext for its whole
+// life. The hand-rolled LazyProc version took the uintptr that Call returns and
+// converted it straight back to a pointer -- the "possible misuse of
+// unsafe.Pointer" go vet reported, and the only vet finding this repository had.
+//
+// CertAddEncodedCertificateToStore is the exception: x/sys has no wrapper for
+// it, so it keeps a LazyProc below. That direction is fine. Passing a pointer
+// INTO a syscall as an inline uintptr(unsafe.Pointer(...)) argument is the form
+// the unsafe rules explicitly permit; it was only the reverse -- a uintptr
+// coming back out and being turned into a pointer -- that was unsound.
 var (
 	modcrypt32                           = syscall.NewLazyDLL("crypt32.dll")
 	procCertAddEncodedCertificateToStore = modcrypt32.NewProc("CertAddEncodedCertificateToStore")
-	procCertCloseStore                   = modcrypt32.NewProc("CertCloseStore")
-	procCertDeleteCertificateFromStore   = modcrypt32.NewProc("CertDeleteCertificateFromStore")
-	procCertDuplicateCertificateContext  = modcrypt32.NewProc("CertDuplicateCertificateContext")
-	procCertEnumCertificatesInStore      = modcrypt32.NewProc("CertEnumCertificatesInStore")
-	procCertOpenSystemStoreW             = modcrypt32.NewProc("CertOpenSystemStoreW")
 )
 
 func (m *mkcert) installPlatform() bool {
@@ -65,26 +73,25 @@ func (m *mkcert) uninstallPlatform() bool {
 	return true
 }
 
-type windowsRootStore uintptr
+type windowsRootStore windows.Handle
 
 func openWindowsRootStore() (windowsRootStore, error) {
 	rootStr, err := syscall.UTF16PtrFromString("ROOT")
 	if err != nil {
 		return 0, err
 	}
-	store, _, err := procCertOpenSystemStoreW.Call(0, uintptr(unsafe.Pointer(rootStr)))
-	if store != 0 {
-		return windowsRootStore(store), nil
+	store, err := windows.CertOpenSystemStore(0, rootStr)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open windows root store: %v", err)
 	}
-	return 0, fmt.Errorf("failed to open windows root store: %v", err)
+	return windowsRootStore(store), nil
 }
 
 func (w windowsRootStore) close() error {
-	ret, _, err := procCertCloseStore.Call(uintptr(w), 0)
-	if ret != 0 {
-		return nil
+	if err := windows.CertCloseStore(windows.Handle(w), 0); err != nil {
+		return fmt.Errorf("failed to close windows root store: %v", err)
 	}
-	return fmt.Errorf("failed to close windows root store: %v", err)
+	return nil
 }
 
 func (w windowsRootStore) addCert(cert []byte) error {
@@ -103,34 +110,70 @@ func (w windowsRootStore) addCert(cert []byte) error {
 	return fmt.Errorf("failed adding cert: %v", err)
 }
 
-func (w windowsRootStore) deleteCertsWithSerial(serial *big.Int) (bool, error) {
-	// Go over each, deleting the ones we find
-	var cert *syscall.CertContext
-	deletedAny := false
+// certBytes returns a certificate context's DER.
+//
+// This used to be (*[1 << 20]byte)(unsafe.Pointer(c.EncodedCert))[:c.Length],
+// which silently truncates any certificate larger than a megabyte and is
+// exactly the construct unsafe.Slice was added to replace.
+func certBytes(c *windows.CertContext) []byte {
+	return unsafe.Slice(c.EncodedCert, c.Length)
+}
+
+// forEachCert calls f for every certificate in the store, stopping early if f
+// returns false.
+//
+// Enumeration lives apart from deletion so it can be exercised by tests without
+// going anywhere near the delete path -- walking the caller's real root store
+// is safe, removing things from it is not.
+func (w windowsRootStore) forEachCert(f func(*windows.CertContext) bool) error {
+	var cert *windows.CertContext
 	for {
-		// Next enum
-		certPtr, _, err := procCertEnumCertificatesInStore.Call(uintptr(w), uintptr(unsafe.Pointer(cert)))
-		if cert = (*syscall.CertContext)(unsafe.Pointer(certPtr)); cert == nil {
-			if errno, ok := err.(syscall.Errno); ok && errno == 0x80092004 {
-				break
+		// CertEnumCertificatesInStore frees the context passed to it and
+		// returns the next one, so the previous pointer must not be reused.
+		next, err := windows.CertEnumCertificatesInStore(windows.Handle(w), cert)
+		if next == nil {
+			if err == nil || err == syscall.Errno(windows.CRYPT_E_NOT_FOUND) {
+				return nil // walked the whole store
 			}
-			return deletedAny, fmt.Errorf("failed enumerating certs: %v", err)
+			return fmt.Errorf("failed enumerating certs: %v", err)
 		}
-		// Parse cert
-		certBytes := (*[1 << 20]byte)(unsafe.Pointer(cert.EncodedCert))[:cert.Length]
-		parsedCert, err := x509.ParseCertificate(certBytes)
-		// We'll just ignore parse failures for now
-		if err == nil && parsedCert.SerialNumber != nil && parsedCert.SerialNumber.Cmp(serial) == 0 {
-			// Duplicate the context so it doesn't stop the enum when we delete it
-			dupCertPtr, _, err := procCertDuplicateCertificateContext.Call(uintptr(unsafe.Pointer(cert)))
-			if dupCertPtr == 0 {
-				return deletedAny, fmt.Errorf("failed duplicating context: %v", err)
+		cert = next
+		if !f(cert) {
+			// Nothing will call Enum again to free this one for us.
+			if err := windows.CertFreeCertificateContext(cert); err != nil {
+				return fmt.Errorf("failed freeing cert context: %v", err)
 			}
-			if ret, _, err := procCertDeleteCertificateFromStore.Call(dupCertPtr); ret == 0 {
-				return deletedAny, fmt.Errorf("failed deleting certificate: %v", err)
-			}
-			deletedAny = true
+			return nil
 		}
 	}
-	return deletedAny, nil
+}
+
+func (w windowsRootStore) deleteCertsWithSerial(serial *big.Int) (bool, error) {
+	deletedAny := false
+	var deleteErr error
+
+	err := w.forEachCert(func(cert *windows.CertContext) bool {
+		// We'll just ignore parse failures for now
+		parsedCert, err := x509.ParseCertificate(certBytes(cert))
+		if err != nil || parsedCert.SerialNumber == nil || parsedCert.SerialNumber.Cmp(serial) != 0 {
+			return true
+		}
+		// Duplicate the context so deleting it doesn't stop the enum
+		dupCert := windows.CertDuplicateCertificateContext(cert)
+		if dupCert == nil {
+			deleteErr = fmt.Errorf("failed duplicating context")
+			return false
+		}
+		if err := windows.CertDeleteCertificateFromStore(dupCert); err != nil {
+			deleteErr = fmt.Errorf("failed deleting certificate: %v", err)
+			return false
+		}
+		deletedAny = true
+		return true
+	})
+
+	if deleteErr != nil {
+		return deletedAny, deleteErr
+	}
+	return deletedAny, err
 }
