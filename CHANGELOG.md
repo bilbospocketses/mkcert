@@ -15,6 +15,52 @@ is unchanged beneath them.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [1.4.4-bt.2] - 2026-09-19
+
+Three features adopted from upstream's open backlog, each asked for repeatedly
+there and none of it merged since the project went dormant in 2024-08.
+
+### Added
+
+
+- **`-name-constraints LIST`** — a comma-separated list of DNS suffixes and CIDR
+  ranges the CA is permitted to sign for, e.g.
+  `"example.test,192.168.0.0/16"`. Applied when the CA is created. A
+  constrained CA bounds the damage if its private key is stolen, which matters
+  here because the key's on-disk protection is weaker than it looks on Windows
+  (see the `0400` note above).
+
+  **Both halves are load-bearing.** X.509 applies name constraints *per name
+  type*, so constraining DNS alone leaves IP addresses completely
+  unconstrained. Measured against upstream PR #657, which sets only
+  `PermittedDNSDomains`: a CA so constrained still signs `8.8.8.8` happily.
+  mkcert now warns when only one name type is covered, because a
+  half-constrained CA is more dangerous than an unconstrained one — it looks
+  protected. The extension is marked critical, so a verifier that cannot
+  understand it must reject rather than ignore it.
+
+  Adopted from upstream #657, #302, #309, #487, extended with the IP half.
+
+- **`-days INT`** — validity period for generated certificates. The default is
+  unchanged at 2 years and 3 months. Warns above 825 days, the ceiling macOS
+  and iOS apply to every certificate including locally-trusted ones.
+  Adopted from upstream #513, #464, #339, #343.
+
+- **`-ca-name NAME`** — the CA's name in trust stores, instead of
+  `mkcert <user>@<host>`. Applied when the CA is created. The `user@host`
+  provenance is kept in the organizational unit either way, since that is how
+  you tell which machine minted a root you found in a store.
+  Adopted from upstream #229, #260, #240.
+
+
+## [1.4.4-bt.1] - 2026-09-19
+
+First release from this fork: the review, the dependency bump, the hardening it
+produced, and the pipeline that publishes it.
+
+
 ### Security
 
 - **A URL-shaped argument no longer escapes the working directory.** `main.go`'s
@@ -70,36 +116,6 @@ is unchanged beneath them.
   (3DES) or `Modern` (AES-256) would be a deliberate behaviour change.
 
 ### Added
-
-- **`-name-constraints LIST`** — a comma-separated list of DNS suffixes and CIDR
-  ranges the CA is permitted to sign for, e.g.
-  `"example.test,192.168.0.0/16"`. Applied when the CA is created. A
-  constrained CA bounds the damage if its private key is stolen, which matters
-  here because the key's on-disk protection is weaker than it looks on Windows
-  (see the `0400` note above).
-
-  **Both halves are load-bearing.** X.509 applies name constraints *per name
-  type*, so constraining DNS alone leaves IP addresses completely
-  unconstrained. Measured against upstream PR #657, which sets only
-  `PermittedDNSDomains`: a CA so constrained still signs `8.8.8.8` happily.
-  mkcert now warns when only one name type is covered, because a
-  half-constrained CA is more dangerous than an unconstrained one — it looks
-  protected. The extension is marked critical, so a verifier that cannot
-  understand it must reject rather than ignore it.
-
-  Adopted from upstream #657, #302, #309, #487, extended with the IP half.
-
-- **`-days INT`** — validity period for generated certificates. The default is
-  unchanged at 2 years and 3 months. Warns above 825 days, the ceiling macOS
-  and iOS apply to every certificate including locally-trusted ones.
-  Adopted from upstream #513, #464, #339, #343.
-
-- **`-ca-name NAME`** — the CA's name in trust stores, instead of
-  `mkcert <user>@<host>`. Applied when the CA is created. The `user@host`
-  provenance is kept in the organizational unit either way, since that is how
-  you tell which machine minted a root you found in a store.
-  Adopted from upstream #229, #260, #240.
-
 
 - **Tests, where the repository had none.** `go test -race ./...` previously
   passed because there was not a single `*_test.go` file — a green check that

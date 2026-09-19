@@ -1,5 +1,13 @@
 # mkcert
 
+> **This is a maintained fork of [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert).**
+> Upstream has been dormant since 2024-08 and its last release, v1.4.4, is from 2022.
+> This fork carries a security review, current dependencies, a test suite, and three
+> features from upstream's open backlog (`-days`, `-name-constraints`, `-ca-name`).
+> Releases here are tagged `vX.Y.Z-bt.N` and carry checksums plus a build-provenance
+> attestation. **The Homebrew / Chocolatey / Scoop instructions below install
+> UPSTREAM's binary, not this one** -- take this fork's binaries from its Releases page.
+
 mkcert is a simple tool for making locally-trusted development certificates. It requires no configuration.
 
 ```
@@ -145,6 +153,29 @@ To only install the local root CA into a subset of them, you can set the `TRUST_
 	-csr CSR
 	    Generate a certificate based on the supplied CSR. Conflicts with
 	    all other flags and arguments except -install and -cert-file.
+
+	-days INT
+	    Validity period of the generated certificate, in days. The default
+	    is 2 years and 3 months, just under the 825-day limit macOS and iOS
+	    apply to every certificate, locally-trusted roots included.
+
+	-name-constraints LIST
+	    Comma-separated DNS suffixes and CIDR ranges the CA is permitted to
+	    sign for, e.g. "example.test,192.168.0.0/16". Applied when the CA is
+	    CREATED, so it has no effect on an existing CAROOT. A constrained CA
+	    limits the damage if its private key is ever stolen.
+
+	    Constraints apply PER NAME TYPE: listing only DNS suffixes leaves IP
+	    addresses completely unconstrained, and vice versa. mkcert warns when
+	    you constrain one and not the other.
+
+	-ca-name NAME
+	    Name for the CA in trust stores, instead of "mkcert <user>@<host>".
+	    Applied when the CA is CREATED. The user@host provenance is kept in
+	    the organizational unit either way.
+
+	-CAROOT
+	    Print the CA certificate and key storage location.
 ```
 
 > **Note:** You _must_ place these options before the domain names list.
