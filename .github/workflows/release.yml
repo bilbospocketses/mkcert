@@ -1,48 +1,113 @@
+name: Release
+
+# Publishing a GitHub release builds the binaries and attaches them. The tag is
+# the single source of truth for the version: it is validated below, stamped
+# into the binary through -ldflags, and used in every asset name.
 on:
   release:
     types: [published]
-name: Upload Release Asset
+
+permissions:
+  contents: write     # upload assets to the release
+  id-token: write     # sigstore OIDC, for provenance
+  attestations: write # actions/attest-build-provenance
+
 jobs:
   release:
-    name: Upload Release Asset
-    runs-on: ubuntu-latest
+    name: Build, attest and upload
+    # Pinned, unlike the test matrix. A release build wants reproducibility;
+    # the test matrix wants early warning when a runner image changes.
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.x
       - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Build binaries
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "mkcert-$(git describe --tags)-linux-amd64" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -o "mkcert-$(git describe --tags)-linux-arm" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o "mkcert-$(git describe --tags)-linux-arm64" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o "mkcert-$(git describe --tags)-darwin-amd64" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o "mkcert-$(git describe --tags)-darwin-arm64" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o "mkcert-$(git describe --tags)-windows-amd64.exe" -ldflags "-X main.Version=$(git describe --tags)"
-          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o "mkcert-$(git describe --tags)-windows-arm64.exe" -ldflags "-X main.Version=$(git describe --tags)"
-      - name: Upload release artifacts
-        uses: actions/github-script@v3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const fs = require("fs").promises;
-            const { repo: { owner, repo }, sha } = context;
+          go-version-file: go.mod
 
-            const release = await github.repos.getReleaseByTag({
-              owner, repo,
-              tag: process.env.GITHUB_REF.replace("refs/tags/", ""),
-            });
-            console.log("Release:", { release });
+      # Upstream's last release is v1.4.4 and its tags are mirrored into this
+      # repository, so a plain `v1.4.4` tag here would produce artefacts
+      # indistinguishable from theirs in a bug report. Refusing the build is
+      # cheaper than working out afterwards whose binary someone is running.
+      - name: Validate the tag is one of ours
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-bt\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' is not a fork release tag. Expected vX.Y.Z-bt.N," \
+                 "which keeps our artefacts distinguishable from upstream's."
+            exit 1
+          fi
+          echo "Building $TAG"
 
-            for (let file of await fs.readdir(".")) {
-              if (!file.startsWith("mkcert-")) continue;
-              console.log("Uploading", file);
-              await github.repos.uploadReleaseAsset({
-                owner, repo,
-                release_id: release.data.id,
-                name: file,
-                data: await fs.readFile(file),
-              });
-            }
+      - name: Build binaries
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          build() {
+            # Split deliberately: referencing $goos inside the same `local`
+            # that declares it trips `set -u` with "goos: unbound variable".
+            local goos="$1" goarch="$2" goarm="${3:-}"
+            local ext=""
+            local suffix="$goos-$goarch"
+            if [[ "$goos" == "windows" ]]; then ext=".exe"; fi
+            if [[ -n "$goarm" ]]; then suffix="$goos-${goarch}v$goarm"; fi
+            local out="dist/mkcert-$TAG-$suffix$ext"
+            echo "  $out"
+            # `env` rather than a bare assignment prefix. A prefix must be
+            # literal at parse time, so `${goarm:+GOARM=$goarm} go build` makes
+            # bash treat the EXPANDED "GOARM=6" as the command name --
+            # "GOARM=6: command not found", and with set -e the release dies
+            # three platforms in. env takes VAR=VAL as arguments, so the
+            # conditional expansion works.
+            env GOOS="$goos" GOARCH="$goarch" ${goarm:+GOARM="$goarm"} \
+              go build -trimpath -ldflags "-s -w -X main.Version=$TAG" -o "$out" .
+          }
+          build linux   amd64
+          build linux   arm64
+          build linux   arm   6
+          build darwin  amd64
+          build darwin  arm64
+          build windows amd64
+          build windows arm64
+          ls -l dist
+
+      # A consumer fetching these at runtime needs something to verify against.
+      # ws-scrcpy-web vendors this binary to dependencies/mkcert/<version>/ on
+      # first use, and "downloaded it over TLS" is not integrity.
+      - name: Generate checksums
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          cd dist
+          # Both lines matter, and only one of them is obvious.
+          # The rm handles a RE-RUN: a previous attempt leaves its
+          # SHA256SUMS.txt in dist, and `mkcert-*` would then hash the
+          # checksum file into itself. The write-then-move handles the same
+          # run: redirecting straight into a file the glob also matches is
+          # order-dependent, and not worth depending on.
+          rm -f mkcert-*-SHA256SUMS.txt
+          sha256sum mkcert-* > ../SHA256SUMS.tmp
+          mv ../SHA256SUMS.tmp "mkcert-$TAG-SHA256SUMS.txt"
+          cat "mkcert-$TAG-SHA256SUMS.txt"
+
+      # We ship a binary that mints trust material and another app fetches it at
+      # runtime. step (the alternative rejected when this fork was chosen)
+      # publishes sigstore attestations; matching that bar is the right instinct
+      # even for a private repository.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/mkcert-*
+
+      - name: Upload release assets
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"

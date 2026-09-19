@@ -92,6 +92,13 @@ is unchanged beneath them.
   builds on exactly the floor the project claims to support.
 - staticcheck pinned to 2026.2.1 instead of `@latest`, which recompiled it from
   source every job and changed the lint surface whenever upstream released.
+- **`release.yml` rewritten.** It built with `git describe --tags` and uploaded
+  through `actions/github-script@v3`. It now takes the version from the release
+  tag, refuses any tag that is not `vX.Y.Z-bt.N` so our artefacts can never be
+  confused with upstream's `v1.4.4`, builds seven platforms with `-trimpath`,
+  publishes a `SHA256SUMS.txt` so a consumer fetching a binary at runtime has
+  something to verify against, and attaches a sigstore build-provenance
+  attestation. Its runner is pinned to `ubuntu-24.04`, unlike the test matrix.
 
 ## Fork history
 
