@@ -98,10 +98,26 @@ jobs:
           cat "mkcert-$TAG-SHA256SUMS.txt"
 
       # We ship a binary that mints trust material and another app fetches it at
-      # runtime. step (the alternative rejected when this fork was chosen)
-      # publishes sigstore attestations; matching that bar is the right instinct
-      # even for a private repository.
+      # runtime, so provenance is the right instinct. GitHub will not let us
+      # have it here. Measured on the v1.4.4-bt.1 release, run 35410069963:
+      #
+      #   Failed to persist attestation: Feature not available for user-owned
+      #   private repositories. To enable this feature, please make this
+      #   repository public.
+      #
+      # That is a platform constraint, not a configuration error, and the way
+      # out of it -- publishing the repository -- is a decision this project has
+      # deliberately NOT taken (see the fork's binding decisions). So the step is
+      # gated on visibility rather than deleted: it stays correct, it costs
+      # nothing while private, and it starts working by itself if that decision
+      # is ever revisited.
+      #
+      # Gated, NOT continue-on-error. A step that always fails is a red check
+      # nobody reads, which is the exact anti-pattern the CI work just removed.
+      # Until then, integrity for a fetched binary rests on the SHA256SUMS file
+      # above; signing it is tracked separately.
       - name: Attest build provenance
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/mkcert-*
