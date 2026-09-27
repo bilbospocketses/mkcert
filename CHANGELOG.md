@@ -18,7 +18,11 @@ changes; the original history is unchanged beneath them.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- `CONTRIBUTING.md` now lists `CodeQL` among the required checks. It was made
+  required after the file was written, so the list named only `build-and-test`
+  and `Scorecard analysis`.
 
 ## [0.1.0] - 2026-09-27
 

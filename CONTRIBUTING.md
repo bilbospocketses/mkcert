@@ -28,9 +28,11 @@ a system or browser trust store.
 
 `master` is PR-only. Direct pushes are rejected by a repository ruleset.
 
-- **Required checks:** `build-and-test` (the Go tests matrix on all three OSes)
-  and `Scorecard analysis`. With strict status checks, a PR that falls behind
-  `master` has to be updated before it can merge.
+- **Required checks:** `build-and-test` (the Go tests matrix on all three OSes),
+  `CodeQL` (code scanning for Go and Actions; it reports `neutral` on a PR it
+  has nothing to scan, which still passes) and `Scorecard analysis`. With strict
+  status checks, a PR that falls behind `master` has to be updated before it
+  can merge.
 - **Squash merge only.**
 - **Signed commits only.** Unsigned commits cannot reach `master`, and `v*` tags
   must be signed.
