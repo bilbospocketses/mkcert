@@ -1,4 +1,4 @@
-module filippo.io/mkcert
+module github.com/bilbospocketses/mkcert
 
 go 1.26.0
 
