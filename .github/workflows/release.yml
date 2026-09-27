@@ -32,7 +32,7 @@ jobs:
       # highest RELEASE tag, so a malformed or suffixed tag here would either
       # ship a binary that misreports itself or be skipped by Go as a
       # prerelease. The two pre-break releases, v1.4.4-bt.1 and -bt.2, predate
-      # this scheme and are never rebuilt.
+      # this scheme and have been withdrawn.
       - name: Validate the tag is a release version
         env:
           TAG: ${{ github.event.release.tag_name }}
