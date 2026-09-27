@@ -1,21 +1,51 @@
 # Changelog
 
-All notable changes to this fork are documented here.
+All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-with a fork suffix: our releases are tagged `v1.4.4-bt.N`, so an artefact can
-never be confused with upstream's `v1.4.4`.
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Releases are numbered from `v0.1.0`. The two before that, `v1.4.4-bt.1` and
+`v1.4.4-bt.2`, were cut while this was still a fork and took upstream's last
+version as their base.
 
-This is a private fork of [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert),
-maintained so that ws-scrcpy-web can vendor a local-CA binary whose provenance
-we control. Upstream has been dormant since 2024-08 and its last release,
-v1.4.4, is from 2022. Entries below describe **our** changes; upstream history
-is unchanged beneath them.
+This project is derived from [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert)
+under its BSD-3-Clause licence and has been maintained independently since
+2026-09-27. It does not track or contribute to the original, which has been
+dormant since 2024-08. It began as a fork so that ws-scrcpy-web could vendor a
+local-CA binary whose provenance we control. Entries below describe **our**
+changes; the original history is unchanged beneath them.
 
 ## [Unreleased]
 
-_Nothing yet._
+Clean break from the original project. No change to certificate output or to
+any flag.
+
+### Changed
+
+- **Module path is `github.com/bilbospocketses/mkcert`**, was `filippo.io/mkcert`.
+  Under the old path the module could not be installed as itself: our path
+  fetched a module declaring a different one, and the old path fetched the
+  original. `go install github.com/bilbospocketses/mkcert@latest` now works.
+- **Versioning restarts at `v0.1.0`**, plain `vX.Y.Z`. `release.yml` refuses any
+  other tag shape, including the old `-bt.N` suffix, which also sorted as a
+  prerelease *below* the version it was based on.
+- When installing into the NSS stores fails, the message now points at this
+  repository's issue tracker instead of the original's.
+- README install instructions point at this project's releases and source, with
+  a verified `gh release download` / `sha256sum` / `gh attestation verify`
+  recipe. The package-manager instructions are gone: Homebrew, MacPorts,
+  Chocolatey, Scoop and Arch all install the original v1.4.4.
+- The attestation comment in `release.yml` no longer describes the repository
+  as private.
+
+### Removed
+
+- The original project's 14 release tags, `v0.9.0` through `v1.4.4`. They
+  pointed into history this repository still contains, but left two numbers
+  of our own line already taken and made Go resolve `@latest` to the original's
+  `v1.4.4`, which declares the old module path and so fails to install.
+- Issue-template contact links that sent questions to the original project's
+  Discussions.
 
 ## [1.4.4-bt.2] - 2026-09-19
 
@@ -152,3 +182,6 @@ Forked from upstream `1c1dc4e` (2024-08-13), mirroring `master` and all 14
 tags. Certificate output measured before any change and unchanged since:
 RSA-3072 root over RSA-2048 leaves, 3653-day CA, 822-day leaf, 128-bit serial
 from `crypto/rand`, KU `DigitalSignature, KeyEncipherment`, EKU `serverAuth`.
+
+Broke from upstream on 2026-09-27: the `upstream` remote was removed and the 14
+mirrored tags were deleted. The commits they marked are still in this history.

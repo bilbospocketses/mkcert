@@ -1,12 +1,14 @@
 # mkcert
 
-> **This is a maintained fork of [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert).**
-> Upstream has been dormant since 2024-08 and its last release, v1.4.4, is from 2022.
-> This fork carries a security review, current dependencies, a test suite, and three
-> features from upstream's open backlog (`-days`, `-name-constraints`, `-ca-name`).
-> Releases here are tagged `vX.Y.Z-bt.N` and carry checksums plus a build-provenance
-> attestation. **The Homebrew / Chocolatey / Scoop instructions below install
-> UPSTREAM's binary, not this one** -- take this fork's binaries from its Releases page.
+> **This is an independently maintained mkcert**, derived from
+> [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert) under its BSD-3-Clause
+> licence (the original copyright is kept in [LICENSE](LICENSE) and [AUTHORS](AUTHORS)).
+> It is not affiliated with the original project and does not track it; that project
+> has been dormant since 2024-08 and its last release, v1.4.4, is from 2022.
+> This one carries a security review, current dependencies, a test suite, and
+> `-days`, `-name-constraints` and `-ca-name`. Releases are numbered from v0.1.0 and
+> each ships checksums and a build-provenance attestation. **Package managers (Homebrew, MacPorts, Chocolatey,
+> Scoop, Arch) install the original v1.4.4, not this** -- see [Installation](#installation).
 
 mkcert is a simple tool for making locally-trusted development certificates. It requires no configuration.
 
@@ -39,26 +41,49 @@ mkcert automatically creates and installs a local CA in the system root store, a
 
 > **Warning**: the `rootCA-key.pem` file that mkcert automatically generates gives complete power to intercept secure requests from your machine. Do not share it.
 
-### macOS
+Homebrew, MacPorts, Chocolatey, Scoop and the Arch repository all package the
+original mkcert v1.4.4, not this project. Install from a release binary or build
+from source.
 
-On macOS, use [Homebrew](https://brew.sh/)
+### Pre-built binaries
+
+Each [release](https://github.com/bilbospocketses/mkcert/releases) carries
+binaries for Linux (`amd64`, `arm64`, `armv6`), macOS (`amd64`, `arm64`) and
+Windows (`amd64`, `arm64`), a `SHA256SUMS.txt`, and a build-provenance
+attestation. Assets are named `mkcert-<tag>-<os>-<arch>`. With the
+[GitHub CLI](https://cli.github.com/), fetch the latest release and verify it
+before use -- here for Linux `amd64`:
 
 ```
-brew install mkcert
-brew install nss # if you use Firefox
+gh release download --repo bilbospocketses/mkcert --pattern '*-linux-amd64' --pattern '*-SHA256SUMS.txt'
+sha256sum --check --ignore-missing mkcert-*-SHA256SUMS.txt
+gh attestation verify mkcert-*-linux-amd64 --repo bilbospocketses/mkcert
+chmod +x mkcert-*-linux-amd64
+sudo cp mkcert-*-linux-amd64 /usr/local/bin/mkcert
 ```
 
-or [MacPorts](https://www.macports.org/).
+On Windows, the same `gh release download` with `--pattern '*-windows-amd64.exe'`.
+If you're running into permission problems try running `mkcert` as an Administrator.
+
+### Build from source
+
+Requires Go 1.26 or later.
 
 ```
-sudo port selfupdate
-sudo port install mkcert
-sudo port install nss # if you use Firefox
+go install github.com/bilbospocketses/mkcert@latest
 ```
 
-### Linux
+or from a clone:
 
-On Linux, first install `certutil`.
+```
+git clone https://github.com/bilbospocketses/mkcert && cd mkcert
+go build -ldflags "-X main.Version=$(git describe --tags)"
+```
+
+### Firefox and Chrome on Linux, Firefox on macOS
+
+`-install` reaches the NSS trust stores these browsers use through `certutil`.
+On Linux, install it first:
 
 ```
 sudo apt install libnss3-tools
@@ -70,51 +95,7 @@ sudo pacman -S nss
 sudo zypper install mozilla-nss-tools
 ```
 
-Then you can install using [Homebrew on Linux](https://docs.brew.sh/Homebrew-on-Linux)
-
-```
-brew install mkcert
-```
-
-or build from source (requires Go 1.13+)
-
-```
-git clone https://github.com/FiloSottile/mkcert && cd mkcert
-go build -ldflags "-X main.Version=$(git describe --tags)"
-```
-
-or use [the pre-built binaries](https://github.com/FiloSottile/mkcert/releases).
-
-```
-curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64"
-chmod +x mkcert-v*-linux-amd64
-sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert
-```
-
-For Arch Linux users, [`mkcert`](https://archlinux.org/packages/extra/x86_64/mkcert/) is available on the official Arch Linux repository.
-
-```
-sudo pacman -Syu mkcert
-```
-
-### Windows
-
-On Windows, use [Chocolatey](https://chocolatey.org)
-
-```
-choco install mkcert
-```
-
-or use Scoop
-
-```
-scoop bucket add extras
-scoop install mkcert
-```
-
-or build from source (requires Go 1.10+), or use [the pre-built binaries](https://github.com/FiloSottile/mkcert/releases).
-
-If you're running into permission problems try running `mkcert` as an Administrator.
+On macOS, `brew install nss` if you use Firefox.
 
 ## Supported root stores
 
