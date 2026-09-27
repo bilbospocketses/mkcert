@@ -60,3 +60,23 @@ jobs:
 
       - name: Run staticcheck
         run: staticcheck ./...
+
+  # The one context the branch ruleset requires. The matrix above reports a
+  # check per OS, so requiring those directly would tie the ruleset to the
+  # matrix, and a required check that stops reporting blocks every merge.
+  # `if: always()` makes this job report even when a matrix leg fails, and
+  # `needs.test.result` is `success` only when every leg succeeded.
+  build-and-test:
+    name: build-and-test
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Go tests job to have passed
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: |
+          if [[ "$RESULT" != "success" ]]; then
+            echo "::error::Go tests finished as '$RESULT', not 'success'."
+            exit 1
+          fi
