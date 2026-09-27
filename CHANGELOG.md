@@ -29,6 +29,9 @@ to certificate output or to any flag.
   for the SHA-pinned actions, weekly, minor and patch bumps grouped.
 - **OpenSSF Scorecard** (`scorecard.yml`) on push, pull request, weekly and on
   ruleset changes, with SARIF uploaded to the Security tab.
+- **`SECURITY.md`** (private reporting through GitHub security advisories, and
+  what is in and out of scope), **`CONTRIBUTING.md`** (build, test, PR and
+  release rules) and **`.github/CODEOWNERS`**.
 
 ### Changed
 
