@@ -4,9 +4,10 @@ All notable changes to this project are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Releases are numbered from `v0.1.0`. The two before that, `v1.4.4-bt.1` and
-`v1.4.4-bt.2`, were cut while this was still a fork and took upstream's last
-version as their base.
+Releases are numbered from `v0.1.0`. The two before it, `v1.4.4-bt.1` and
+`v1.4.4-bt.2`, were cut while this was still a fork, took upstream's last
+version as their base, and have been withdrawn. Their entries below are kept
+as history.
 
 This project is derived from [FiloSottile/mkcert](https://github.com/FiloSottile/mkcert)
 under its BSD-3-Clause licence and has been maintained independently since
@@ -17,8 +18,14 @@ changes; the original history is unchanged beneath them.
 
 ## [Unreleased]
 
-Clean break from the original project, and the repository hardened. No change
-to certificate output or to any flag.
+_Nothing yet._
+
+## [0.1.0] - 2026-09-27
+
+First release as an independent project: a clean break from the original, and
+the repository hardened. The code is the same as `v1.4.4-bt.2` apart from the
+module path and one message string, so there is no change to certificate
+output or to any flag. Every artefact carries a build-provenance attestation.
 
 ### Added
 
@@ -59,6 +66,8 @@ to certificate output or to any flag.
   `v1.4.4`, which declares the old module path and so fails to install.
 - Issue-template contact links that sent questions to the original project's
   Discussions.
+- The two pre-break releases, `v1.4.4-bt.1` and `v1.4.4-bt.2`, are withdrawn
+  and their tags deleted. Use `v0.1.0` or later.
 
 ## [1.4.4-bt.2] - 2026-09-19
 
