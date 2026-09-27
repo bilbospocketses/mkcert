@@ -17,8 +17,18 @@ changes; the original history is unchanged beneath them.
 
 ## [Unreleased]
 
-Clean break from the original project. No change to certificate output or to
-any flag.
+Clean break from the original project, and the repository hardened. No change
+to certificate output or to any flag.
+
+### Added
+
+- **`build-and-test` check** in `test.yml`: one job that passes only when every
+  OS in the Go tests matrix passed. It is the context the branch ruleset
+  requires, so the ruleset does not have to name each matrix leg.
+- **Dependabot version updates** (`.github/dependabot.yml`) for Go modules and
+  for the SHA-pinned actions, weekly, minor and patch bumps grouped.
+- **OpenSSF Scorecard** (`scorecard.yml`) on push, pull request, weekly and on
+  ruleset changes, with SARIF uploaded to the Security tab.
 
 ### Changed
 

@@ -1,0 +1,39 @@
+# Dependabot version updates.
+#
+# Security updates are separate: Dependabot alerts and automated security fixes
+# are enabled in the repository settings and do not read this file. This file
+# covers routine version bumps.
+#
+#   - gomod: the four direct dependencies in go.mod and their indirect ones.
+#     The golang.org/x modules release together, so minor and patch bumps are
+#     grouped into one weekly PR. Majors still open on their own.
+#   - github-actions: the SHA-pinned `uses:` refs in .github/workflows. Every
+#     pin carries a precise `# vX.Y.Z` comment, which is what lets Dependabot
+#     see and bump it.
+
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # One PR for all action bumps, so checkout / setup-go / the codeql-action
+    # sub-actions move in lockstep.
+    groups:
+      actions:
+        patterns:
+          - "*"

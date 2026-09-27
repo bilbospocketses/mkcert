@@ -1,0 +1,68 @@
+# OpenSSF Scorecard: supply-chain security scoring.
+#
+# Scores the repository on the Scorecard checks (Branch-Protection,
+# Code-Review, Dangerous-Workflow, Dependency-Update-Tool, Pinned-Dependencies,
+# SAST, Security-Policy, Signed-Releases, Token-Permissions and the rest) and
+# uploads SARIF to the Security tab next to the CodeQL alerts.
+#
+# Triggers: weekly, on every push to master, on ruleset changes
+# (branch_protection_rule), and on pull requests. The pull_request trigger is
+# what lets `Scorecard analysis` be a required check -- without it the check
+# would never report on a PR and every merge would block.
+#
+# Every action is SHA-pinned to a COMMIT (sha_pinning_required is on) with a
+# precise `# vX.Y.Z` comment so Dependabot can bump it. ossf/scorecard-action
+# is on the repository's explicit actions allowlist; everything else here is
+# GitHub-owned.
+
+name: Scorecard supply-chain security
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: '0 13 * * 1'
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # upload SARIF to the Security tab
+      id-token: write          # OIDC for publish_results to api.securityscorecards.dev
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        # A COMMIT SHA, not the annotated-tag object's SHA. The Actions runtime
+        # accepts either, but the OpenSSF webapp's publish_results verifier
+        # rejects a tag-object SHA as an "imposter commit".
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Push events only: a PR run would publish a head SHA that is not on
+          # master, which the webapp verifier rejects for the same reason.
+          publish_results: ${{ github.event_name == 'push' }}
+
+      - name: Upload SARIF artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload SARIF to the Security tab
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: results.sarif
