@@ -18,6 +18,12 @@ changes; the original history is unchanged beneath them.
 
 ## [Unreleased]
 
+### Added
+
+- **American-spelling gate** in the required `build-and-test` job: the checker
+  from `bilbospocketses/american-spelling`, pinned to v1.0.2 by commit SHA,
+  fails a PR whose added lines or commit messages use a British spelling.
+
 ### Fixed
 
 - `CONTRIBUTING.md` now lists `CodeQL` among the required checks. It was made
