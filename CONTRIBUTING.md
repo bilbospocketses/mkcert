@@ -28,7 +28,8 @@ a system or browser trust store.
 
 `master` is PR-only. Direct pushes are rejected by a repository ruleset.
 
-- **Required checks:** `build-and-test` (the Go tests matrix on all three OSes),
+- **Required checks:** `build-and-test` (the Go tests matrix on all three OSes,
+  plus an American-spelling check of the lines a PR adds and its commit messages),
   `CodeQL` (code scanning for Go and Actions; it reports `neutral` on a PR it
   has nothing to scan, which still passes) and `Scorecard analysis`. With strict
   status checks, a PR that falls behind `master` has to be updated before it
